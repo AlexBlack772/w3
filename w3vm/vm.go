@@ -88,7 +88,7 @@ func (vm *VM) Apply(msg *w3types.Message, hooks ...*tracing.Hooks) (*Receipt, er
 		merged = append(merged, vm.opts.defaultHooks)
 	}
 	merged = append(merged, hooks...)
-	return vm.apply(msg, false, joinHooks(merged))
+	return vm.apply(msg, false, joinHooks(merged...))
 }
 
 // ApplyTx is like [VM.Apply], but takes a transaction instead of a message.
@@ -189,7 +189,7 @@ func (vm *VM) Call(msg *w3types.Message, hooks ...*tracing.Hooks) (*Receipt, err
 		merged = append(merged, vm.opts.defaultHooks)
 	}
 	merged = append(merged, hooks...)
-	return vm.apply(msg, true, joinHooks(merged))
+	return vm.apply(msg, true, joinHooks(merged...))
 }
 
 // CallFunc is a utility function for [VM.Call] that calls the given function
@@ -639,4 +639,21 @@ func WithTB(tb testing.TB) Option {
 // WithJumpDestCache sets the jump destination analysis cache for the VM.
 func WithJumpDestCache(cache vm.JumpDestCache) Option {
 	return func(vm *VM) { vm.opts.jumpDestCache = cache }
+}
+
+// WithConsoleTrace enables or disables the automatic console call tracing.
+// If enabled, a call tracer is initialized during VM creation and attached by default.
+func WithConsoleTrace(enabled bool) Option {
+	return func(vm *VM) { vm.opts.consoleTraceEnabled = enabled }
+}
+
+// WithConsoleTraceWriter sets the writer used by the default console call tracer.
+// If not set, it defaults to os.Stdout when tracing is enabled.
+func WithConsoleTraceWriter(w io.Writer) Option {
+	return func(vm *VM) { vm.opts.consoleTraceWriter = w }
+}
+
+// WithConsoleTraceOptions sets the options for the default console call tracer.
+func WithConsoleTraceOptions(opts *vmhooks.CallTracerOptions) Option {
+	return func(vm *VM) { vm.opts.consoleTraceOpts = opts }
 }
