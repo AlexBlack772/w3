@@ -12,6 +12,10 @@ import (
 	"testing"
 )
 
+const (
+	logBodyLimit = 1024
+)
+
 // Server is a fake RPC endpoint that responds only to a single requests that
 // is defined in a golden-file.
 //
@@ -57,6 +61,7 @@ func NewFileServer(t *testing.T, filename string) *Server {
 
 func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	srv.readOnce.Do(srv.readGolden)
+	defer r.Body.Close()
 
 	// read body
 	body, err := io.ReadAll(r.Body)
@@ -64,13 +69,24 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		srv.t.Fatalf("Failed to read body: %v", err)
 	}
 
+	// log request
+	path := r.URL.Path
+	if q := r.URL.RawQuery; q != "" {
+		path += "?" + q
+	}
+	srv.t.Logf("request: method=%s path=%s body_len=%d body=%q", r.Method, path, len(body), preview(body))
+
 	// check body
 	if !bytes.Equal(srv.in, body) {
+		srv.t.Logf("request mismatch: want_len=%d got_len=%d", len(srv.in), len(body))
+		srv.t.Logf("want: %q", preview(srv.in))
+		srv.t.Logf("got:  %q", preview(body))
 		srv.t.Fatalf("Invalid request body (-want, +got)\n-%s\n+%s", srv.in, body)
 	}
 
 	// respond
 	w.Header().Set("Content-Type", "application/json")
+	srv.t.Logf("response: %q", preview(srv.out))
 	w.Write(srv.out)
 }
 
@@ -113,4 +129,16 @@ func (srv *Server) readGolden() {
 	if err := scan.Err(); err != nil {
 		srv.t.Fatalf("Failed to scan file: %v", err)
 	}
+	srv.t.Logf("golden in: %q", preview(srv.in))
+	srv.t.Logf("golden out: %q", preview(srv.out))
+}
+
+func preview(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	if len(b) <= logBodyLimit {
+		return string(b)
+	}
+	return string(b[:logBodyLimit]) + "... (truncated)"
 }
