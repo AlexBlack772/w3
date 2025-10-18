@@ -9,7 +9,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
+	"os"
 	"testing"
 	"time"
 
@@ -27,6 +29,7 @@ import (
 	"github.com/lmittmann/w3"
 	"github.com/lmittmann/w3/module/eth"
 	"github.com/lmittmann/w3/w3types"
+	vmhooks "github.com/lmittmann/w3/w3vm/hooks"
 )
 
 var (
@@ -80,7 +83,12 @@ func New(opts ...Option) (*VM, error) {
 // Apply the given message to the VM, and return its receipt. Multiple tracing hooks
 // may be given to trace the execution of the message.
 func (vm *VM) Apply(msg *w3types.Message, hooks ...*tracing.Hooks) (*Receipt, error) {
-	return vm.apply(msg, false, joinHooks(hooks))
+	var merged []*tracing.Hooks
+	if vm.opts.defaultHooks != nil {
+		merged = append(merged, vm.opts.defaultHooks)
+	}
+	merged = append(merged, hooks...)
+	return vm.apply(msg, false, joinHooks(merged...))
 }
 
 // ApplyTx is like [VM.Apply], but takes a transaction instead of a message.
@@ -176,7 +184,12 @@ func (v *VM) apply(msg *w3types.Message, isCall bool, hooks *tracing.Hooks) (*Re
 // of a call are reverted. Multiple tracing hooks may be given to trace the execution
 // of the message.
 func (vm *VM) Call(msg *w3types.Message, hooks ...*tracing.Hooks) (*Receipt, error) {
-	return vm.apply(msg, true, joinHooks(hooks))
+	var merged []*tracing.Hooks
+	if vm.opts.defaultHooks != nil {
+		merged = append(merged, vm.opts.defaultHooks)
+	}
+	merged = append(merged, hooks...)
+	return vm.apply(msg, true, joinHooks(merged...))
 }
 
 // CallFunc is a utility function for [VM.Call] that calls the given function
@@ -443,6 +456,12 @@ type options struct {
 	jumpDestCache vm.JumpDestCache
 
 	precompiles vm.PrecompiledContracts
+
+	// default tracing hooks and console tracing configuration
+	defaultHooks        *tracing.Hooks
+	consoleTraceEnabled bool
+	consoleTraceWriter  io.Writer
+	consoleTraceOpts    *vmhooks.CallTracerOptions
 }
 
 func (opt *options) Signer() types.Signer {
@@ -513,6 +532,22 @@ func (opts *options) Init() error {
 		opts.precompiles = precompiles
 	}
 
+	// initialize default console call tracer if enabled
+	if opts.consoleTraceEnabled && opts.defaultHooks == nil {
+		w := opts.consoleTraceWriter
+		if w == nil {
+			w = os.Stdout
+		}
+		topts := opts.consoleTraceOpts
+		if topts == nil {
+			topts = &vmhooks.CallTracerOptions{
+				DecodeABI:      true,
+				ShowStaticcall: true,
+			}
+		}
+		opts.defaultHooks = vmhooks.NewCallTracer(w, topts)
+	}
+
 	return nil
 }
 
@@ -580,6 +615,8 @@ func WithFork(client *w3.Client, blockNumber *big.Int) Option {
 	return func(vm *VM) {
 		vm.opts.forkClient = client
 		vm.opts.forkBlockNumber = blockNumber
+		// Enable console tracing by default when forking
+		vm.opts.consoleTraceEnabled = true
 	}
 }
 
@@ -602,4 +639,21 @@ func WithTB(tb testing.TB) Option {
 // WithJumpDestCache sets the jump destination analysis cache for the VM.
 func WithJumpDestCache(cache vm.JumpDestCache) Option {
 	return func(vm *VM) { vm.opts.jumpDestCache = cache }
+}
+
+// WithConsoleTrace enables or disables the automatic console call tracing.
+// If enabled, a call tracer is initialized during VM creation and attached by default.
+func WithConsoleTrace(enabled bool) Option {
+	return func(vm *VM) { vm.opts.consoleTraceEnabled = enabled }
+}
+
+// WithConsoleTraceWriter sets the writer used by the default console call tracer.
+// If not set, it defaults to os.Stdout when tracing is enabled.
+func WithConsoleTraceWriter(w io.Writer) Option {
+	return func(vm *VM) { vm.opts.consoleTraceWriter = w }
+}
+
+// WithConsoleTraceOptions sets the options for the default console call tracer.
+func WithConsoleTraceOptions(opts *vmhooks.CallTracerOptions) Option {
+	return func(vm *VM) { vm.opts.consoleTraceOpts = opts }
 }

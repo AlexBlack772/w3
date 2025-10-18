@@ -1117,3 +1117,63 @@ func (m *mockPrecompile) Run(input []byte) ([]byte, error) { return input, nil }
 func (m *mockPrecompile) Name() string                     { return "mockPrecompile" }
 
 func ptr[T any](t T) *T { return &t }
+
+func TestVMConsoleTrace_Enabled_Writes(t *testing.T) {
+	var buf bytes.Buffer
+	vm, err := w3vm.New(
+		w3vm.WithConsoleTrace(true),
+		w3vm.WithConsoleTraceWriter(&buf),
+		w3vm.WithState(w3types.State{
+			addrWETH: {
+				Code: codeWETH,
+				Storage: w3types.Storage{
+					w3vm.WETHBalanceSlot(addr0): common.BigToHash(w3.I("1 ether")),
+				},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create VM: %v", err)
+	}
+	_, err = vm.Call(&w3types.Message{
+		From:  addr0,
+		To:    &addrWETH,
+		Input: mustEncodeArgs(funcBalanceOf, addr0),
+	})
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+	if buf.Len() == 0 {
+		t.Fatalf("expected console trace output, got none")
+	}
+}
+
+func TestVMConsoleTrace_Disabled_NoOutput(t *testing.T) {
+	var buf bytes.Buffer
+	vm, err := w3vm.New(
+		w3vm.WithConsoleTrace(false),
+		w3vm.WithConsoleTraceWriter(&buf),
+		w3vm.WithState(w3types.State{
+			addrWETH: {
+				Code: codeWETH,
+				Storage: w3types.Storage{
+					w3vm.WETHBalanceSlot(addr0): common.BigToHash(w3.I("1 ether")),
+				},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create VM: %v", err)
+	}
+	_, err = vm.Call(&w3types.Message{
+		From:  addr0,
+		To:    &addrWETH,
+		Input: mustEncodeArgs(funcBalanceOf, addr0),
+	})
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("console trace output present while disabled: %q", buf.String())
+	}
+}
